@@ -28,7 +28,6 @@ logging:
   level:
     com.zhiguang: debug
 
-
 auth:
   jwt:
     issuer: zhiguang
@@ -41,3 +40,11 @@ auth:
   password:
     bcrypt-strength: 12
     min-length: 8
+
+oss:
+  endpoint: oss-cn-beijing.aliyuncs.com
+  access-key-id: ${OSS_ACCESS_KEY_ID}
+  access-key-secret: ${OSS_ACCESS_KEY_SECRET}
+  bucket: zhiguangccy
+  public-domain:
+  folder: avatars
