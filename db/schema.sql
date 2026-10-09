@@ -108,3 +108,4 @@ CREATE TABLE IF NOT EXISTS follower (
                                         KEY idx_to_created (to_user_id, created_at, from_user_id, rel_status),
                                         KEY idx_from (from_user_id, to_user_id, rel_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
