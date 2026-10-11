@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zhiguang.counter.mapper.LikeRecordMapper">
+
+    <!-- 故意用裸 INSERT：重复时抛异常，语义明确。
+         不用 INSERT IGNORE（会连数据截断等其它错误一起吞掉），
+         也不用 ON DUPLICATE KEY UPDATE（受影响行数受驱动 CLIENT_FOUND_ROWS 影响，易踩坑）。 -->
+    <insert id="insert">
+        INSERT INTO like_record (user_id, post_id, type)
+        VALUES (#{userId}, #{postId}, #{type})
+    </insert>
+
+    <delete id="delete">
+        DELETE FROM like_record
+        WHERE user_id = #{userId}
+          AND post_id = #{postId}
+          AND type = #{type}
+    </delete>
+
+    <select id="findPostIdsByUserAndType" resultType="long">
+        SELECT post_id
+        FROM like_record
+        WHERE user_id = #{userId}
+        AND type = #{type}
+        AND post_id IN
+        <foreach collection="postIds" item="pid" open="(" separator="," close=")">
+            #{pid}
+        </foreach>
+    </select>
+
+    <!-- 单帖计数（懒重建用）：走 ix_post_type 索引 -->
+    <select id="countByPostAndType" resultType="long">
+        SELECT COUNT(*)
+        FROM like_record
+        WHERE post_id = #{postId} AND type = #{type}
+    </select>
+
+    <!-- 批量计数（批量懒重建用）：一次 GROUP BY，不是 N 次查询 -->
+    <select id="countByPostIdsAndType" resultType="com.zhiguang.counter.mapper.dto.PostCountRow">
+        SELECT post_id AS postId, COUNT(*) AS cnt
+        FROM like_record
+        WHERE type = #{type}
+        AND post_id IN
+        <foreach collection="postIds" item="pid" open="(" separator="," close=")">
+            #{pid}
+        </foreach>
+        GROUP BY post_id
+    </select>
+
+</mapper>

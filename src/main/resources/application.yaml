@@ -3,10 +3,13 @@ spring:
     name: zhiguang                     # 应用名，随意，建议项目名
 
   datasource:
-    url: jdbc:mysql://localhost:3306/zhiguang?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8
+    url: jdbc:mysql://localhost:3306/zhiguang?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai&characterEncoding=utf8
     username: root
     password: 123456
     driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      # HikariCP 默认只有 10 个连接。200 并发压测暴露连接池是瓶颈，调到 50 做对照实验
+      maximum-pool-size: 50
 
   data:              # ← 加这一层
     redis:
@@ -26,7 +29,9 @@ mybatis:
 
 logging:
   level:
-    com.zhiguang: debug
+    # 压测时必须用 info：debug 会把每条 SQL 连同参数同步打印，
+    # 400+ 条日志的开销会污染测量结果（见压测对照实验）
+    com.zhiguang: info
 
 auth:
   jwt:
@@ -48,3 +53,11 @@ oss:
   bucket: zhiguangccy
   public-domain:
   folder: avatars
+
+server:
+  error:
+    include-message: always     # 让 500 也返回 message，调试期间不至于瞎
+
+counter:
+  reconcile:
+    interval-ms: 300000          # 5 分钟对账一次

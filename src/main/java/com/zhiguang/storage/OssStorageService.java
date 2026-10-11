@@ -47,7 +47,7 @@ public class OssStorageService {
         return publicUrl(objectKey);
     }
 
-    private String publicUrl(String objectKey) {
+    public String publicUrl(String objectKey) {
         if (props.getPublicDomain() != null && !props.getPublicDomain().isBlank()) {
             return props.getPublicDomain().replaceAll("/$", "") + "/" + objectKey;
         }

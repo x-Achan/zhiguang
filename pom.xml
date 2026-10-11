@@ -68,7 +68,12 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
-
+        <!-- Redisson：分布式锁（定时对账只让一个实例跑） -->
+        <dependency>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson</artifactId>
+            <version>3.52.0</version>
+        </dependency>
         <!-- spring-security -->
         <dependency>
             <groupId>org.springframework.security</groupId>

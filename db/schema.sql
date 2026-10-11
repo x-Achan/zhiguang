@@ -109,3 +109,22 @@ CREATE TABLE IF NOT EXISTS follower (
                                         KEY idx_from (from_user_id, to_user_id, rel_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+
+
+-- ① 计数直接放主表上（土，但读路径免费）
+ALTER TABLE know_posts
+    ADD COLUMN like_count INT NOT NULL DEFAULT 0 COMMENT '点赞数',
+    ADD COLUMN fav_count  INT NOT NULL DEFAULT 0 COMMENT '收藏数';
+
+-- ② 点赞明细表：靠唯一键判重（这就是"真相源"）
+CREATE TABLE IF NOT EXISTS like_record (
+                                           id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                                           user_id    BIGINT UNSIGNED NOT NULL,
+                                           post_id    BIGINT UNSIGNED NOT NULL,
+                                           type       VARCHAR(16) NOT NULL COMMENT 'like / fav',
+                                           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                           PRIMARY KEY (id),
+                                           UNIQUE KEY uk_user_post_type (user_id, post_id, type),   -- ★ 幂等的关键
+                                           KEY ix_post_type (post_id, type)                          -- 按帖子查
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
