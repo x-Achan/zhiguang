@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zhiguang.relation.mapper.RelationMapper">
+
+    <!-- ① 首次关注：行不存在时才插入成功。
+         为什么不用 ON DUPLICATE KEY UPDATE：
+           ODKU 的 affected-rows 语义受 JDBC useAffectedRows / CLIENT_FOUND_ROWS 影响，
+           而且我们这里 updated_at=NOW(3) 每次都变，
+           导致"重复关注一个已关注的用户"也会返回非 0，无法用来判断"是否是新关注"。
+         INSERT IGNORE 只在真的插入时返回 1，语义干净、与驱动配置无关。 -->
+    <insert id="insertFollowingIfAbsent">
+        INSERT IGNORE INTO following (id, from_user_id, to_user_id, rel_status, created_at, updated_at)
+        VALUES (#{id}, #{fromUserId}, #{toUserId}, 1, NOW(3), NOW(3))
+    </insert>
+
+    <!-- ② 重新关注：把被逻辑删除过的行复活。
+         WHERE 里带 rel_status=0，所以 affected=1 精确表示"确实复活了一条"。
+         并发安全：两个线程同时来，只有一个能匹配上这一行。 -->
+    <update id="reviveFollowing">
+        UPDATE following
+        SET rel_status = 1, updated_at = NOW(3), created_at = NOW(3)
+        WHERE from_user_id = #{fromUserId}
+          AND to_user_id = #{toUserId}
+          AND rel_status = 0
+    </update>
+
+    <!-- ③ 取关：逻辑删除，不物理删行（保留历史 + 幂等）。
+         WHERE 里带 rel_status=1，affected=1 精确表示"确实取消了"。 -->
+    <update id="cancelFollowing">
+        UPDATE following
+        SET rel_status = 0, updated_at = NOW(3)
+        WHERE from_user_id = #{fromUserId}
+          AND to_user_id = #{toUserId}
+          AND rel_status = 1
+    </update>
+
+    <select id="existsFollowing" resultType="int">
+        SELECT COUNT(1)
+        FROM following
+        WHERE from_user_id = #{fromUserId}
+          AND to_user_id = #{toUserId}
+          AND rel_status = 1
+    </select>
+
+    <!-- 列表回填：时间倒序；用 to_user_id 做 tiebreaker，保证同毫秒时排序稳定（否则分页会重复/漏行）。
+         这条能走 idx_from_created (from_user_id, created_at, to_user_id, rel_status)，不需要 filesort。 -->
+    <select id="listFollowingRows" resultType="map">
+        SELECT to_user_id AS userId, created_at AS createdAt
+        FROM following
+        WHERE from_user_id = #{fromUserId}
+          AND rel_status = 1
+        ORDER BY created_at DESC, to_user_id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <!-- 粉丝列表：走 idx_to_created —— 这就是单表方案补的那个索引 -->
+    <select id="listFollowerRows" resultType="map">
+        SELECT from_user_id AS userId, created_at AS createdAt
+        FROM following
+        WHERE to_user_id = #{toUserId}
+          AND rel_status = 1
+        ORDER BY created_at DESC, from_user_id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countFollowingActive" resultType="long">
+        SELECT COUNT(1)
+        FROM following
+        WHERE from_user_id = #{fromUserId}
+          AND rel_status = 1
+    </select>
+
+    <select id="countFollowerActive" resultType="long">
+        SELECT COUNT(1)
+        FROM following
+        WHERE to_user_id = #{toUserId}
+          AND rel_status = 1
+    </select>
+
+    <select id="listRelationUserIds" resultType="long">
+        SELECT user_id
+        FROM (
+                 SELECT from_user_id AS user_id
+                 FROM following
+
+                 UNION
+
+                 SELECT to_user_id AS user_id
+                 FROM following
+             ) relation_users
+        ORDER BY user_id
+        LIMIT #{limit}
+    </select>
+
+</mapper>

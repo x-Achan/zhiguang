@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zhiguang.relation.outbox.OutboxMapper">
+
+    <!-- 不写 id 列：outbox.id 已经改成 AUTO_INCREMENT，由数据库生成。
+         为什么必须单调自增：轮询式 relay 要靠 id 做游标，
+         如果像参考实现那样用 ThreadLocalRandom 生成随机 id，
+         "id 比游标小但插入更晚"的记录会被永久漏掉。 -->
+    <insert id="insert">
+        INSERT INTO outbox (aggregate_type, aggregate_id, type, payload)
+        VALUES (#{aggregateType}, #{aggregateId}, #{type}, #{payload})
+    </insert>
+
+</mapper>

@@ -32,4 +32,14 @@ public final class CounterKeys {
     public static String indexEntry(long postId, CounterType type) {
         return postId + ":" + type.value();
     }
+
+    /**
+     * 位图事实层键：bm:{metric}:{etype}:{eid}:{chunk}
+     *
+     * <p>存"谁赞过"（1 bit/用户），不存计数。
+     * 前台状态判断（isLiked）和重建都靠它。</p>
+     */
+    public static String bitmap(String metric, String entityType, String entityId, long chunk) {
+        return "bitmap:" + entityType + ":" + entityId + ":" + metric + ":" + chunk;
+    }
 }

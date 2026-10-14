@@ -125,6 +125,17 @@ CREATE TABLE IF NOT EXISTS like_record (
                                            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                                            PRIMARY KEY (id),
                                            UNIQUE KEY uk_user_post_type (user_id, post_id, type),   -- ★ 幂等的关键
-                                           KEY ix_post_type (post_id, type)                          -- 按帖子查
+                                           KEY ix_post_type (post_id, type),                       -- 按帖子查
+                                           KEY ix_user_type_created (user_id, type, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ① 给 following 补"反向查询 + 有序分页 + 覆盖索引"
+--    Route C 走单表，"谁关注了我"这个查询必须靠它，否则 ORDER BY created_at 会 filesort
+ALTER TABLE following
+    ADD KEY idx_to_created (to_user_id, created_at, from_user_id, rel_status);
+
+-- ② outbox.id 改成数据库自增
+--    原因：轮询式 relay 要用 id 做游标，而参考实现用 ThreadLocalRandom 生成随机 id，
+--    非单调 → 游标式轮询会漏数据（id 比游标小但插入更晚的记录永远读不到）
+ALTER TABLE outbox
+    MODIFY COLUMN id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT;

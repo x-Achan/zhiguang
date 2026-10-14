@@ -38,4 +38,6 @@ public interface CounterService {
      * 给 Feed 用（避免 N+1）。
      */
     Map<Long, Long> getCounts(List<Long> postIds, CounterType type);
+    // 读位图
+    boolean isLiked(CounterType type, long postId, long userId);
 }

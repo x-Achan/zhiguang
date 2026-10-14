@@ -47,4 +47,13 @@
         GROUP BY post_id
     </select>
 
+    <!-- 写聚合落库：一次多值 INSERT 替 N 次单条 INSERT。
+     这正是压测里"唯一索引 gap 锁竞争"的解药：200 次插入 → 1 次插入。 -->
+    <insert id="batchInsertIgnore">
+        INSERT IGNORE INTO like_record (user_id, post_id, type) VALUES
+        <foreach collection="rows" item="r" separator=",">
+            (#{r.userId}, #{r.postId}, #{r.type})
+        </foreach>
+    </insert>
+
 </mapper>

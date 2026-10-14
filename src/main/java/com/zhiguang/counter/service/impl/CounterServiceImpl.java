@@ -1,8 +1,11 @@
 package com.zhiguang.counter.service.impl;
 
 import com.zhiguang.counter.api.dto.CounterActionResponse;
+import com.zhiguang.counter.event.CounterEventProducer;
 import com.zhiguang.counter.mapper.LikeRecordMapper;
+import com.zhiguang.counter.model.CounterEvent;
 import com.zhiguang.counter.model.CounterType;
+import com.zhiguang.counter.schema.BitmapShard;
 import com.zhiguang.counter.schema.CounterKeys;
 import com.zhiguang.counter.service.CounterService;
 import com.zhiguang.knowpost.mapper.KnowPostMapper;
@@ -35,9 +38,22 @@ public class CounterServiceImpl implements CounterService {
             return redis.call('INCRBY', KEYS[1], ARGV[1])
             """, Long.class);
 
+    //位图原子切换：读当前位 → 与目标一致则返回 0（无变化）→ 否则置位并返回 1
+    // KEYS[1]=位图键　ARGV[1]=位偏移　ARGV[2]=目标值(0/1)
+    private static final DefaultRedisScript<Long> TOGGLE_BIT = new DefaultRedisScript<>("""
+            local cur = redis.call('GETBIT', KEYS[1], ARGV[1])
+            local want = tonumber(ARGV[2])
+            if cur == want then
+                return 0
+            end
+            redis.call('SETBIT', KEYS[1], ARGV[1], want)
+            return 1
+            """, Long.class);
+
     private final LikeRecordMapper likeRecordMapper;
     private final KnowPostMapper knowPostMapper;
     private final StringRedisTemplate redis;
+    private final CounterEventProducer eventProducer;
 
 
     private long baseTtlSeconds = 7200; //基础 TTL
@@ -54,30 +70,50 @@ public class CounterServiceImpl implements CounterService {
         if(post == null || post.getStatus().equals("deleted")){
             throw new RuntimeException("帖子不存在或者被删除");
         }
-        // 明细真相源 -> 实现幂等
-        boolean changed = on
-                ? insertRecord(type,userId,postId)
-                : deleteRecord(type,userId,postId);
-        long count;
-        // 写入Redis
-        if(changed){
-            count = applyDeltaAtomic(type,postId,on ? 1 : -1);
-        }else{
-            count = getCount(postId,type);
+        // lua脚本写位图
+        boolean changed = toggleBitmap(type, postId, userId, on);
+
+        if(!changed){
+            return new CounterActionResponse(type.value(), on, getCount(postId, type), false);
         }
-        return new CounterActionResponse(type.value(),on,count,changed);
+
+        String eid = String.valueOf(postId);
+        try {
+            // 发事件
+            eventProducer.publish(CounterEvent.of("knowpost",eid,type,userId,on ? 1:-1));
+        } catch (Exception e) {
+            toggleBitmap(type, postId, userId, !on); // 补偿：把位改回去
+            throw new IllegalStateException("点赞失败，请重试", e);
+        }
+        // 写cnt
+        long count = applyDeltaAtomic(type, postId, on ? 1 : -1);
+        return new CounterActionResponse(type.value(), on, count, true);
     }
 
-    // Redis执行Lua脚本，实现增量自增
+    // Redis执行Lua脚本，实现自增INCE
     private long applyDeltaAtomic(CounterType type,long postId,long delta){
         String key = CounterKeys.knowpost(postId,type);
         Long after = redis.execute(INCR_IF_EXISTS, List.of(key), String.valueOf(delta));
         // Redis缺失或者发生飘逸为复数，从真相源重建
         if(after == null || after < 0){
-            // 写路径的重建是罕见操作，可以接受各自重建
-            return rebuild(postId,type);
+            return rebuild(postId,type);// 写路径的重建是罕见操作，可以接受各自重建
         }
         return after;
+    }
+
+// 同步写路径的核心：一次位图 Lua，既完成判重，又给出"是否真的变化"
+    private boolean toggleBitmap(CounterType type, long postId, long userId, boolean on) {
+        String bmKey = CounterKeys.bitmap(
+                type.value(),
+                "knowpost",
+                String.valueOf(postId),
+                BitmapShard.chunkOf(userId));
+        Long changed = redis.execute(
+                TOGGLE_BIT,
+                List.of(bmKey),
+                String.valueOf(BitmapShard.bitOf(userId))
+                , on ? "1" : "0");
+        return changed != null && changed == 1L;
     }
 
 
@@ -106,7 +142,7 @@ public class CounterServiceImpl implements CounterService {
         }
     }
 
-    // 从真相源重建到 Reids 中
+    // 从真相源重建到 Reids cnt 中
     @Override
     public long rebuild(long postId, CounterType type) {
         long actual = likeRecordMapper.countByPostAndType(postId, type.value());
@@ -146,6 +182,15 @@ public class CounterServiceImpl implements CounterService {
             result.put(id, getCount(id, type));
         }
         return result;
+    }
+
+    // 读位图
+    @Override
+    public boolean isLiked(CounterType type, long postId, long userId) {
+        String bmKey = CounterKeys.bitmap(
+                type.value(), "knowpost", String.valueOf(postId), BitmapShard.chunkOf(userId));
+        Boolean bit = redis.opsForValue().getBit(bmKey, BitmapShard.bitOf(userId));
+        return Boolean.TRUE.equals(bit);
     }
 
 

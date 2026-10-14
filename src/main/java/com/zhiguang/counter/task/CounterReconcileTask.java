@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import java.util.List;
@@ -15,8 +16,31 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 public class CounterReconcileTask {
 
+// 原子修正脚本
+    private static final DefaultRedisScript<Long> CORRECT_COUNTER = new DefaultRedisScript<>("""
+            local v = redis.call('GET', KEYS[1])
+            if not v then
+                return -1
+            end
+            local cur = tonumber(v)
+            local truth = tonumber(ARGV[1])
+            local tol = tonumber(ARGV[2])
+            local diff = cur - truth
+            if diff == 0 then
+                return 0
+            end
+            if diff > 0 and diff <= tol then
+                return -2
+            end
+            local delta = truth - cur
+            redis.call('INCRBY', KEYS[1], delta)
+            return delta
+            """, Long.class);
+
     // 单次抽样数量
     private static final int SAMPLE_SIZE = 200;
+    // 在途容忍上限：差值小于它视为"异步落库还没追上
+    private long tolerance = 1000;
     // 分布式锁key
     private static final String LOCK_KEY = "lock:counter-reconcile";
 
@@ -47,7 +71,6 @@ public class CounterReconcileTask {
 
         List<String> samples = redis.opsForSet().randomMembers(CounterKeys.INDEX, SAMPLE_SIZE);
         if(samples == null || samples.isEmpty()) return;
-
         for (String sample : samples) {
             String[] parts = sample.split(":");
             long postId = Long.parseLong(parts[0]);
@@ -65,23 +88,17 @@ public class CounterReconcileTask {
 
     }
 
-
     // 对账单个计数器，修正偏差
-    public boolean reconcileOne(long postId, CounterType type){
+    public void reconcileOne(long postId, CounterType type){
         String key = CounterKeys.knowpost(postId,type);
-        String value = redis.opsForValue().get(key);
-        if(value == null) return false;
-
-        // 计算redis和真相源的差，对差做自增
-        long redisValue = Long.parseLong(value);
         long truthValue = likeRecordMapper.countByPostAndType(postId, type.value());
-        if(redisValue == truthValue) return false;
+        // 执行lua脚本，修正
+        Long r = redis.execute(
+                CORRECT_COUNTER,
+                List.of(key),
+                String.valueOf(truthValue),
+                String.valueOf(tolerance));
 
-        // 核心：用差值修正，不用set覆盖
-        long delta = truthValue - redisValue;
-        redis.opsForValue().increment(key,delta);
-
-        return true;
     }
 }
 

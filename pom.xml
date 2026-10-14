@@ -74,6 +74,11 @@
             <artifactId>redisson</artifactId>
             <version>3.52.0</version>
         </dependency>
+        <!-- Spring Kafka：计数事件异步生产 + 消费端批量落库（版本由 Spring Boot 3.4.1 托管） -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
         <!-- spring-security -->
         <dependency>
             <groupId>org.springframework.security</groupId>

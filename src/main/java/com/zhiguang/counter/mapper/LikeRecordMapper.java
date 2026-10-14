@@ -1,5 +1,6 @@
 package com.zhiguang.counter.mapper;
 
+import com.zhiguang.counter.mapper.dto.LikeRecordRow;
 import com.zhiguang.counter.mapper.dto.PostCountRow;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -43,4 +44,14 @@ public interface LikeRecordMapper {
     List<Long> findPostIdsByUserAndType(@Param("userId") long userId,
                                         @Param("postIds") List<Long> postIds,
                                         @Param("type") String type);
+
+    /**
+     * 批量插入点赞明细（写聚合落库用）：一次多值 INSERT 替 N 次单条 INSERT。
+     *
+     * <p><b>★ 为什么这里可以用 INSERT IGNORE</b>（单条插入路径我们刻意不用它）：
+     * 这里的值全部由服务端生成（两个 long + 一个枚举串），不存在用户输入被截断的风险，
+     * 唯一可能触发的错误就是唯一键冲突 —— 而冲突恰好需要被忽略（Kafka 重复投递）。</p>
+     */
+    int batchInsertIgnore(@Param("rows") List<LikeRecordRow> rows);
+
 }
